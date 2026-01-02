@@ -1,5 +1,0 @@
-# Zeabur 配置文件
-type: "prebuilt"
-
-# 预构建 Docker 镜像配置
-# Zeabur 会自动检测 Python 项目并使用 Gunicorn 运行
