@@ -1,0 +1,13 @@
+[build]
+builder = "nixpacks"
+
+[build.env]
+NPM_CONFIG_PRODUCTION = "false"
+
+[[services]]
+name = "book-tracker-api"
+protocol = "tcp"
+
+[[services.ports]]
+port = 5000
+handlers = ["http"]
