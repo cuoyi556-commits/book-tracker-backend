@@ -12,6 +12,4 @@ venv/
 .git
 .gitignore
 README.md
-Procfile
-render.yaml
-config.railway.toml
+ZEABUR_DEPLOYMENT.md
