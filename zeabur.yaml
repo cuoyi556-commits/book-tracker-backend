@@ -1,0 +1,9 @@
+# Zeabur 配置文件
+# 使用 Zeabur 的自动检测功能，不使用 Dockerfile
+
+type: "docker"
+
+# 容器配置
+container:
+  # 不指定 Dockerfile，让 Zeabur 自动检测 Python 项目
+  # Zeabur 会自动安装 requirements.txt 中的依赖

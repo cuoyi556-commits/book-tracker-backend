@@ -1,0 +1,20 @@
+# Zeabur 配置
+version: 2
+
+# 部署配置
+deploy:
+  # 跳过自动检测的 Chrome 安装
+  skipBuild: false
+
+# 环境变量
+env:
+  - key: PORT
+    value: 5000
+
+  # 告诉 Chrome 使用无头模式
+  - key: CHROME_BIN
+    value: /usr/bin/google-chrome
+
+  # Puppeteer/Chrome 配置
+  - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+    value: "true"
