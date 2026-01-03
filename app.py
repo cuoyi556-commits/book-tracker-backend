@@ -147,7 +147,18 @@ class DoubanBookLoader:
         if res.status_code in [200, 201]:
             print("下载书籍:{}成功,耗时{:.0f}ms".format(url, (time.time() - start_time) * 1000))
             book_detail_content = res.content
-            book = self.book_parser.parse_book(url, book_detail_content.decode("utf8"))
+            # 尝试多种编码方式
+            try:
+                # 优先尝试 UTF-8
+                html_text = book_detail_content.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    # 尝试 GBK (常见中文编码)
+                    html_text = book_detail_content.decode("gbk")
+                except UnicodeDecodeError:
+                    # 尝试 GB2312
+                    html_text = book_detail_content.decode("gb2312")
+            book = self.book_parser.parse_book(url, html_text)
         return book
 
     def random_sleep(self):
@@ -174,7 +185,15 @@ class DoubanBookSearcher:
         res = requests.get(url, params, headers=DEFAULT_HEADERS, timeout=10)
         book_urls = []
         if res.status_code in [200, 201]:
-            html = etree.HTML(res.content)
+            # 尝试多种编码方式
+            try:
+                html_text = res.content.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    html_text = res.content.decode("gbk")
+                except UnicodeDecodeError:
+                    html_text = res.content.decode("gb2312")
+            html = etree.HTML(html_text)
             alist = html.xpath('//a[@class="nbg"]')
             for link in alist:
                 href = link.attrib['href']
