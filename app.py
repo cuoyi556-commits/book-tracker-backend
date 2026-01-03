@@ -1,119 +1,108 @@
 """
 豆瓣图书封面API服务
-使用Selenium爬取豆瓣图书信息，优化资源使用
+使用 requests + BeautifulSoup 爬取豆瓣图书信息（轻量级方案）
 """
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from bs4 import BeautifulSoup
-import time
 import requests
+from bs4 import BeautifulSoup
+import re
+import time
+import random
 import os
+from urllib.parse import quote, unquote
 
 app = Flask(__name__)
 CORS(app)
 
-# 超时设置
-REQUEST_TIMEOUT = 25
+# 配置
+DOUBAN_SEARCH_URL = "https://www.douban.com/search"
+DOUBAN_BASE = "https://book.douban.com/"
+DOUBAN_BOOK_CAT = "1001"
+DOUBAN_BOOK_URL_PATTERN = re.compile(".*/subject/(\\d+)/?")
+
+# 请求头
+DEFAULT_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Referer': DOUBAN_BASE,
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1'
+}
 
 
-class DriverManager:
-    """管理WebDriver的上下文管理器，确保用完即关闭"""
-
-    @staticmethod
-    def get_driver():
-        """创建新的WebDriver实例"""
-        options = Options()
-        options.add_argument('--headless=new')  # 新版 headless 模式
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--disable-extensions')
-        options.add_argument('--disable-infobars')
-        options.add_argument('--disable-notifications')
-        options.add_argument('--window-size=1920,1080')
-        options.add_argument('--disable-features=VizDisplayCompositor')
-        options.add_argument('--single-process')  # 单进程模式，减少内存使用
-        options.add_argument('--disable-blink-features=AutomationControlled')  # 隐藏自动化特征
-        options.add_experimental_option('excludeSwitches', ['enable-automation'])
-        options.add_experimental_option('useAutomationExtension', False)
-
-        # 设置更真实的 User-Agent
-        options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-
-        try:
-            # 指定 Chrome 二进制文件路径
-            options.binary_location = '/usr/bin/google-chrome'
-
-            # 使用webdriver-manager自动管理ChromeDriver
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=options)
-
-            # 隐藏 webdriver 特征
-            driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-                'source': 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})'
-            })
-
-            driver.set_page_load_timeout(30)
-            driver.set_script_timeout(10)
-            return driver
-        except Exception as e:
-            print(f"创建WebDriver失败: {e}")
-            return None
-
-
-@app.route('/')
-def home():
-    """首页"""
-    return jsonify({
-        'service': '豆瓣图书封面API',
-        'version': '1.0',
-        'endpoints': {
-            '/api/search': '搜索图书（支持ISBN和书名）',
-            '/health': '健康检查'
-        }
-    })
-
-
-@app.route('/health')
-def health():
-    """健康检查"""
-    return jsonify({'status': 'healthy', 'service': 'Douban Scraper'})
+def random_sleep():
+    """随机延迟，避免频繁请求"""
+    time.sleep(random.uniform(0.1, 0.5))
 
 
 def search_douban(query):
-    """使用Selenium搜索豆瓣"""
-    driver = None
+    """使用 requests 搜索豆瓣"""
     try:
         # 判断是ISBN还是书名
         is_isbn = query.replace('-', '').replace(' ', '').isdigit()
 
-        driver = DriverManager.get_driver()
-        if not driver:
+        if is_isbn:
+            # ISBN 直接访问书籍页面
+            url = f"{DOUBAN_BASE}isbn/{query}"
+            return load_book_info(url)
+        else:
+            # 书名搜索
+            return search_books_by_name(query)
+
+    except Exception as e:
+        print(f"搜索错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def search_books_by_name(query):
+    """通过书名搜索"""
+    try:
+        # 搜索
+        params = {"cat": DOUBAN_BOOK_CAT, "q": query}
+        response = requests.get(DOUBAN_SEARCH_URL, params=params, headers=DEFAULT_HEADERS, timeout=10)
+
+        if response.status_code not in [200, 201]:
+            print(f"搜索失败: status={response.status_code}")
             return None
 
-        if is_isbn:
-            url = f"https://book.douban.com/isbn/{query}"
-        else:
-            from urllib.parse import quote
-            url = f"https://book.douban.com/subject_search?search_text={quote(query)}"
+        soup = BeautifulSoup(response.content, 'html.parser')
 
-        driver.get(url)
-        time.sleep(5)  # 增加等待时间，确保页面完全加载
+        # 找到第一个搜索结果
+        link = soup.find('a', class_='title-text')
+        if not link or not link.get('href'):
+            print("未找到搜索结果")
+            return None
 
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        # 获取书籍详情URL
+        book_url = link['href']
+        print(f"找到书籍: {book_url}")
 
-        # 如果是书名搜索，需要找到第一个结果
-        if not is_isbn:
-            link = soup.find('a', class_='title-text')
-            if link and link.get('href'):
-                driver.get(link['href'])
-                time.sleep(5)  # 增加等待时间
-                soup = BeautifulSoup(driver.page_source, 'html.parser')
+        # 加载书籍详情
+        return load_book_info(book_url)
+
+    except Exception as e:
+        print(f"书名搜索错误: {e}")
+        return None
+
+
+def load_book_info(url):
+    """加载书籍详情"""
+    try:
+        random_sleep()
+
+        response = requests.get(url, headers=DEFAULT_HEADERS, timeout=10)
+
+        if response.status_code not in [200, 201]:
+            print(f"加载书籍失败: status={response.status_code}")
+            return None
+
+        soup = BeautifulSoup(response.content, 'html.parser')
 
         # 提取图书信息
         info = {
@@ -127,7 +116,7 @@ def search_douban(query):
         }
 
         # 书名
-        title_elem = soup.find('h1')
+        title_elem = soup.find('span', property='v:itemreviewed')
         if title_elem:
             info['title'] = title_elem.get_text().strip()
 
@@ -169,18 +158,34 @@ def search_douban(query):
                     cover_url = cover_url.replace('/mpic/', '/lpic/')
                     info['cover_url'] = cover_url
 
+        print(f"成功获取书籍信息: {info['title']}")
         return info
 
     except Exception as e:
-        print(f"搜索错误: {e}")
+        print(f"加载书籍详情错误: {e}")
+        import traceback
+        traceback.print_exc()
         return None
-    finally:
-        # 确保关闭driver释放资源
-        if driver:
-            try:
-                driver.quit()
-            except:
-                pass
+
+
+@app.route('/')
+def home():
+    """首页"""
+    return jsonify({
+        'service': '豆瓣图书封面API',
+        'version': '2.0',
+        'method': 'requests (lightweight)',
+        'endpoints': {
+            '/api/search': '搜索图书（支持ISBN和书名）',
+            '/health': '健康检查'
+        }
+    })
+
+
+@app.route('/health')
+def health():
+    """健康检查"""
+    return jsonify({'status': 'healthy', 'service': 'Douban Scraper (Lightweight)'})
 
 
 @app.route('/api/search', methods=['GET', 'POST'])
@@ -202,6 +207,7 @@ def search_book():
         if not query:
             return jsonify({'error': '请提供query参数'}), 400
 
+        print(f"搜索书籍: {query}")
         result = search_douban(query)
 
         if result and result['title']:
@@ -211,9 +217,11 @@ def search_book():
 
     except Exception as e:
         print(f"搜索错误: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
