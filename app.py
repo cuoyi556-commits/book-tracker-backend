@@ -281,6 +281,16 @@ def search_book():
         result = search_douban(query)
 
         if result and result.get('title'):
+            # 将豆瓣图片URL转换为代理URL
+            if result.get('cover_url'):
+                from urllib.parse import urlencode, quote
+                # 编码图片URL
+                encoded_url = quote(result['cover_url'], safe='')
+                # 获取当前请求的host
+                scheme = request.scheme
+                host = request.host
+                # 构建代理URL
+                result['cover_url'] = f"{scheme}://{host}/api/image-proxy?url={encoded_url}"
             return jsonify(result)
         else:
             return jsonify({'error': '未找到相关图书'}), 404
@@ -290,6 +300,49 @@ def search_book():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/image-proxy')
+def image_proxy():
+    """
+    图片代理端点
+    绕过豆瓣防盗链
+    """
+    from urllib.parse import unquote
+
+    img_url = request.args.get('url')
+    if not img_url:
+        return "Missing URL parameter", 400
+
+    try:
+        # 解码URL
+        decoded_url = unquote(img_url)
+
+        # 设置请求头，模拟浏览器访问
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Referer': 'https://book.douban.com/'
+        }
+
+        # 获取图片
+        response = requests.get(decoded_url, headers=headers, timeout=10)
+
+        if response.status_code != 200:
+            return "Failed to fetch image", 404
+
+        # 获取内容类型
+        content_type = response.headers.get('Content-Type', 'image/jpeg')
+
+        # 返回图片数据
+        return response.content, 200, {
+            'Content-Type': content_type,
+            'Cache-Control': 'public, max-age=86400',  # 缓存24小时
+            'Access-Control-Allow-Origin': '*'
+        }
+
+    except Exception as e:
+        print(f"图片代理错误: {e}")
+        return "Failed to proxy image", 500
 
 
 if __name__ == '__main__':
