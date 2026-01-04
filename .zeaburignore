@@ -1,0 +1,4 @@
+# Zeabur ignore file - trigger rebuild
+*.pyc
+__pycache__/
+*.log

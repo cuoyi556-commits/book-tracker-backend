@@ -1,4 +1,5 @@
 # Zeabur 优化的 Dockerfile（超轻量级）
+# 版本: 2.1 - 添加图片代理功能
 FROM python:3.12-alpine
 
 # 设置工作目录
